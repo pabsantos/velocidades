@@ -1,0 +1,152 @@
+---
+title: 'Velocidade, tempo de deslocamento e chance de óbito no meio urbano'
+author: "Pedro Augusto Borges dos Santos"
+date: "11/10/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE)
+
+```
+
+## Setup
+
+```{r}
+library(tidyverse)
+library(sf)
+
+options(scipen = 999999)
+```
+
+## Importação da amostra
+
+Cada viagem contém trechos de 1 segundo percorrido, com a distância e a velocidade. Assim, é possível calcular a distância e o tempo de deslocamento de cada viagem. 
+
+```{r}
+viagens <- st_read("input", "viagens")
+
+viagens <- viagens %>% 
+  select(id, time_acum, spd_kmh, dist)
+
+st_geometry(viagens) <- NULL
+
+head(viagens)
+```
+
+## Cálculos
+
+Seleção das viagens entre 7,5 km e 12,5 km:
+
+```{r}
+viagens_selecionadas <- viagens %>% 
+  group_by(id) %>% 
+  summarise(distancia = sum(dist)) %>% 
+  filter(distancia >= 7500 & distancia <= 12500) %>% 
+  pull(id)
+
+viagens_selecionadas
+```
+
+Cálculo da velocidade média por viagem:
+
+A velocidade média ($V_i$) de uma viagem $i$ se deu por uma ponderação das velocidades praticadas em cada viagem. $V_s$ e  $D_s$ representam a velocidade e a distância de cada seção $s$ percorrida, e $D_i$ representa a distância total de cada viagem $i$.
+
+$$V_i = \frac{\sum V_s \times D_s}{D_i}$$
+
+```{r}
+viagens_vel <- viagens %>% 
+  filter(id %in% as.vector(viagens_selecionadas)) %>% 
+  mutate(tempo = case_when(
+         id == lag(id) ~ time_acum - lag(time_acum),
+         TRUE ~ 0))
+
+velocidade <- viagens_vel %>%
+  drop_na(dist) %>% 
+  mutate(vel_ponderada = spd_kmh * dist) %>%
+  group_by(id) %>%
+  summarise(vel_ponderada = sum(vel_ponderada),
+            distancia = sum(dist),
+            tempo_min = sum(tempo) / 60) %>%
+  mutate(vel_media = vel_ponderada / distancia)
+
+velocidade
+```
+
+Modelo de regressão linear para inferir o tempo de deslocamento a partir da velocidade média:
+
+```{r}
+vel_reg <- lm(tempo_min ~ poly(vel_media, 3, raw = T), data = velocidade)
+summary(vel_reg)
+```
+
+Prevendo novos valores de tempo de deslocamento a partir do modelo criado:
+
+```{r}
+## Valores entre 30 km/h e 70 km/h
+vel_pred <- seq(30, 70, 1)
+
+tempo_var <- predict(vel_reg, newdata = data.frame(vel_media = vel_pred))
+
+resultados <- tibble(velocidade = vel_pred,
+                     tempo_min = tempo_var)
+
+resultados
+```
+
+Relação do risco de morte de um pedestre em caso de colisão com automóvel. Criação de uma regressão logística de acordo com os dados de Ashton (1980):
+
+```{r}
+## Velocidade de impacto
+vel_imp <- c(5, 15, 25, 35, 45, 55, 65, 75, 85)
+
+## Chance de morte
+chance_obito <- c(0, 0.004, 0.026, 0.139, 0.292, 0.309, 0.156, 0.062, 0.012)
+
+## Chance acumulada
+acumulado_obito <- cumsum(chance_obito)
+
+## Uniao em tabela
+ash <- tibble(vel_imp = vel_imp,
+              chance = acumulado_obito)
+
+## Regressão logística
+ash_reg <- glm(chance ~ vel_imp, family = "binomial", data = ash)
+summary(ash_reg)
+```
+
+Prevendo os valores de risco para velocidades entre 30 km/h e 70 km/h:
+
+```{r}
+obito_var <- predict(ash_reg, newdata = data.frame(vel_imp = vel_pred), type = "response")
+```
+
+## Resultados
+
+Unindo todos os resultados:
+
+```{r}
+resultados <- tibble(velocidade = vel_pred,
+                     tempo = tempo_var,
+                     risco = obito_var)
+
+resultados
+```
+
+Gráfico das variáveis:
+
+```{r echo=FALSE}
+resultados %>% 
+  ggplot(aes(x = velocidade, y = risco, color = tempo)) +
+  geom_point() +
+  scale_color_viridis_c() +
+  theme_minimal() +
+  scale_y_continuous(limits = c(0, NA), breaks = seq(0,1,0.2), labels = scales::percent) +
+  scale_x_continuous(minor_breaks = NULL) +
+  labs(
+    x = "Velocidade (km/h)",
+    y = "Risco de óbito",
+    color = "Tempo de\ndeslocamento\n(minutos):"
+  )
+```
+
