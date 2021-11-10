@@ -2,7 +2,7 @@
 title: 'Velocidade, tempo de deslocamento e chance de óbito no meio urbano'
 author: "Pedro Augusto Borges dos Santos"
 date: "11/10/2021"
-output: html_document
+output: github_document
 ---
 
 ```{r setup, include=FALSE}
@@ -50,9 +50,10 @@ viagens_selecionadas
 
 Cálculo da velocidade média por viagem:
 
-A velocidade média ($V_i$) de uma viagem $i$ se deu por uma ponderação das velocidades praticadas em cada viagem. $V_s$ e  $D_s$ representam a velocidade e a distância de cada seção $s$ percorrida, e $D_i$ representa a distância total de cada viagem $i$.
+A velocidade média ($v_i$) de uma viagem $i$ se deu por uma ponderação das velocidades praticadas em cada viagem. $v_s$ e  $d_s$ representam a velocidade e a distância de cada seção $s$ percorrida, e $d_i$ representa a distância total de cada viagem $i$. 
 
-$$V_i = \frac{\sum V_s \times D_s}{D_i}$$
+![](eq.png)
+
 
 ```{r}
 viagens_vel <- viagens %>% 
